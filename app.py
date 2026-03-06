@@ -18,6 +18,10 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Loads keys from .env file automatically
 
+# API keys are loaded from .env / environment variables — not shown in UI
+openai_key = os.environ.get("OPENAI_API_KEY", "")
+cohere_key = os.environ.get("COHERE_API_KEY", "")
+
 from config.settings import DATA_FOLDER, PERSIST_DIR
 from storage.store   import data_changed, indexes_exist
 from indexing.indexer import build_indexes, load_indexes_from_disk
@@ -58,17 +62,6 @@ st.caption("Hybrid Search · HyDE · Cohere Rerank · SQL Agent · Persistent St
 # ══════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.header("⚙️ API Keys")
-    openai_key = st.text_input(
-        "OpenAI API Key", type="password",
-        value=os.environ.get("OPENAI_API_KEY", ""),
-    )
-    cohere_key = st.text_input(
-        "Cohere API Key", type="password",
-        value=os.environ.get("COHERE_API_KEY", ""),
-        help="Free key at cohere.com",
-    )
-
     st.divider()
     st.subheader("📁 Data Folder")
     st.code(f"./{DATA_FOLDER}/", language=None)
@@ -127,10 +120,10 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════
 
 if not openai_key:
-    st.info("👈 Enter your OpenAI API key in the sidebar.")
+    st.error("❌ OPENAI_API_KEY is missing. Add it to your `.env` file and restart the app.")
     st.stop()
 if not cohere_key:
-    st.info("👈 Enter your Cohere API key in the sidebar.")
+    st.error("❌ COHERE_API_KEY is missing. Add it to your `.env` file and restart the app.")
     st.stop()
 if not json_files:
     st.warning(f"Add .json files to `./{DATA_FOLDER}/` and refresh.")
