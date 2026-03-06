@@ -11,6 +11,11 @@ import os
 import glob
 import threading
 
+# ── Fix chromadb pydantic v2 config issue ─────────────────────────────────
+# Must be set BEFORE chromadb is imported (even transitively).
+# Prevents: ConfigError: unable to infer type for attribute "chroma_server_nofile"
+os.environ.setdefault("CHROMA_SERVER_NOFILE", "")
+
 import streamlit as st
 from openai import OpenAI
 import cohere
