@@ -49,6 +49,8 @@ st.markdown("""
 .badge-TEXT       { background:#DBEAFE; color:#1D4ED8; }
 .badge-ANALYTICAL { background:#D1FAE5; color:#065F46; }
 .badge-GENERAL    { background:#EDE9FE; color:#5B21B6; }
+.badge-WEB        { background:#FEF3C7; color:#92400E; }
+.badge-BLOCKED    { background:#FEE2E2; color:#991B1B; }
 .step-box { font-size:13px; color:#6B7280; padding: 4px 0; }
 </style>
 """, unsafe_allow_html=True)
@@ -243,7 +245,7 @@ if prompt := st.chat_input("Ask anything about your data..."):
                 st.dataframe(pipeline_result.result_df.head(50), use_container_width=True)
 
             # ── Stream answer ──────────────────────────────────────────────
-            if pipeline_result.from_cache and isinstance(pipeline_result.stream, str):
+            if isinstance(pipeline_result.stream, str):
                 step_ph.empty()
                 st.markdown(pipeline_result.stream)
                 response_text = pipeline_result.stream

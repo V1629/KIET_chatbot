@@ -16,19 +16,59 @@ from storage.store import get_duckdb_connection
 
 TEXT_SYSTEM = """You are the official KIET University information assistant.
 
-Rules:
-- Prioritise answering from the provided context about KIET University.
+CRITICAL RULE — CONTEXT SUFFICIENCY CHECK:
+If the provided context does NOT contain a direct, specific answer to the user's question
+(e.g. the user asks for a number/count/name/date but the context only has vague mentions),
+you MUST respond with EXACTLY this on the first line:
+[CONTEXT_INSUFFICIENT]
+Then stop. Do NOT attempt to answer. Do NOT suggest contacting anyone. Do NOT say "the context does not specify".
+
+If the context DOES contain the answer, respond normally following these rules:
+- For YES/NO questions: answer with a clear "Yes" or "No" FIRST, then give a one-line explanation.
 - Every factual claim backed by context must end with [Source: <page title or URL>].
 - If asked for contact details (email/phone/address), provide them exactly as given.
-- If the context does not contain the answer, use your general knowledge to give a helpful, accurate response. Do NOT say the information is unavailable.
 - Never invent KIET-specific names, numbers, dates, or rankings that are not in context.
-- Be concise: bullet points for lists, single sentence for simple facts."""
+- Be concise and direct: bullet points for lists, single sentence for simple facts.
+- Match the user's tone — if they ask casually, respond conversationally.
+- NEVER say "the context does not specify", "not mentioned", "you may contact" or anything similar. Either answer fully or output [CONTEXT_INSUFFICIENT]."""
 
-def answer_from_chunks(client, query, chunks):
-    context = "\n".join(
+def _build_text_context(chunks):
+    """Build context string from chunks."""
+    return "\n".join(
         f"\n[Source: {c['meta'].get('page_title', c['meta'].get('url',''))}]\n{c['text']}"
         for c in chunks
     )
+
+
+def check_context_sufficiency(client, query, chunks):
+    """
+    Quick non-streaming check: does the context actually answer the query?
+    Returns True if context is sufficient, False if [CONTEXT_INSUFFICIENT].
+    Uses a FAST peek — only reads the first few tokens of a streaming response.
+    """
+    context = _build_text_context(chunks)
+    stream = client.chat.completions.create(
+        model=ROUTER_MODEL,   # fast + cheap for this check
+        messages=[
+            {"role": "system", "content": TEXT_SYSTEM},
+            {"role": "user",   "content": f"Context:\n{context}\n\nQuestion: {query}"},
+        ],
+        temperature=0.0, max_tokens=30, stream=True,
+    )
+    # Peek at just the first ~30 tokens then stop
+    prefix = ""
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content or ""
+        prefix += delta
+        if len(prefix) >= 25:
+            break
+    # Close the stream early
+    stream.close()
+    return "[CONTEXT_INSUFFICIENT]" not in prefix
+
+
+def answer_from_chunks(client, query, chunks):
+    context = _build_text_context(chunks)
     return client.chat.completions.create(
         model=LLM_MODEL,
         messages=[
@@ -56,7 +96,7 @@ def _gen_sql(client, query, schema_str, error=""):
         prompt += f"Previous attempt failed: {error}\nFix the SQL.\n\n"
     prompt += f"Question: {query}\nSQL:"
     r = client.chat.completions.create(
-        model=LLM_MODEL,
+        model=ROUTER_MODEL,
         messages=[{"role": "system", "content": SQL_SYSTEM},
                   {"role": "user",   "content": prompt}],
         temperature=0, max_tokens=300,
@@ -80,10 +120,10 @@ def run_sql_agent(client, query, db_schemas):
             return None, f"SQL failed: {e2}"
     conn.close()
     if result_df.empty:
-        return result_df, "No records found for that query."
+        return result_df, "The database query returned no matching records. Let me try to answer from other sources."
     preview = result_df.head(20).to_string(index=False)
     stream  = client.chat.completions.create(
-        model=LLM_MODEL,
+        model=ROUTER_MODEL,
         messages=[{"role": "system", "content": NARRATE_SYSTEM},
                   {"role": "user",   "content": f"Question: {query}\n\nResult:\n{preview}\n\nAnswer:"}],
         temperature=0.0, stream=True,
@@ -97,34 +137,74 @@ GENERAL_SYSTEM = "You are a helpful assistant. Answer concisely and accurately."
 
 def answer_general(client, query):
     return client.chat.completions.create(
-        model=LLM_MODEL,
+        model=ROUTER_MODEL,
         messages=[{"role": "system", "content": GENERAL_SYSTEM},
                   {"role": "user",   "content": query}],
         temperature=0.2, stream=True,
     )
 
 
-GENERAL_FALLBACK_SYSTEM = """You are a knowledgeable and helpful assistant.
+# ── WEB SEARCH ANSWER ────────────────────────────────────────────────────
 
-A user has asked a question related to KIET University. The available internal knowledge base did not provide sufficient information to confidently answer the query.
+WEB_SYSTEM = """You are the official KIET University assistant (KIET Deemed to be University, Delhi-NCR, Ghaziabad), augmented with live web search.
 
-Your task is to provide a **clear, accurate, and helpful answer using your general knowledge**.
+You have been given web search results for the user's query. Use them to give
+a comprehensive, accurate answer.
 
-Guidelines:
+CRITICAL RULES:
+- You MUST only use information that is about KIET University (KIET Group of Institutions,
+  KIET Ghaziabad, Delhi-NCR). Ignore ANY web result about other colleges or universities.
+- When the user says "this college", "the college", "here", "our university" etc., they
+  ALWAYS mean KIET University — never any other institution.
+- If none of the web results are about KIET, say: "I couldn't find specific information
+  about this for KIET University. Please contact admissions@kiet.edu or +91-8445557599."
+- Cite sources inline as [Source: <title or URL>].
+- For YES/NO questions, answer yes or no first, then explain.
+- Do NOT say "according to web search" or reveal the search process.
+- Be conversational and helpful."""
 
-* Do **not** mention the internal database, retrieval process, or missing context.
-* Respond naturally as if answering the question directly.
-* If the question relates to universities, academic processes, or events, provide a **reasonable and realistic explanation based on typical university practices**.
-* Avoid speculation. If exact details are uncertain, provide a **general but helpful answer** that would typically apply in similar situations.
-* Keep the response **concise, clear, and informative**.
 
-Your goal is to ensure the user receives a **useful answer even when specific internal information is unavailable**.
-"""
+def answer_from_web(client, query, web_results_context: str):
+    """Generate an answer grounded in Tavily web search results."""
+    return client.chat.completions.create(
+        model=ROUTER_MODEL,
+        messages=[
+            {"role": "system", "content": WEB_SYSTEM},
+            {"role": "user",   "content": f"Web Results:\n{web_results_context}\n\nQuestion: {query}"},
+        ],
+        temperature=0.2, stream=True,
+    )
+
+
+GENERAL_FALLBACK_SYSTEM = """You are KIET University's official assistant (KIET Deemed to be University, Delhi-NCR, Ghaziabad).
+
+The internal knowledge base did not have a strong match for this query, so answer using
+your general knowledge — but ALWAYS answer as KIET's assistant first.
+
+CRITICAL KIET FACTS (use these when relevant):
+• Minimum attendance for exam eligibility: 75%
+• NAAC A+ accredited, NBA-accredited programmes
+• QS I-GAUGE Diamond Rating (2025-2030)
+• Deemed University status under UGC Act since November 2025
+• 10,000+ students across Engineering, Computer Applications, Management, Pharmacy
+• 26,000+ alumni network
+• 2,100+ recruiters visited since inception
+• Highest international placement: ₹1.78 crore
+• TBI-KIET has incubated 240+ startups
+• Contact: admissions@kiet.edu | +91-8445557599
+• Address: KIET, Delhi-NCR, Ghaziabad-Meerut Road, Ghaziabad (201206)
+
+RULES:
+- If the question is about KIET policies, use the facts above.
+- For general education/university questions, answer directly and confidently.
+- Do NOT mention the internal database, retrieval process, or that context was missing.
+- NEVER say "I don't have that information" or "this is not available". Always provide the best possible answer.
+- Be concise and direct. For yes/no questions, answer yes or no first."""
 
 def answer_general_fallback(client, query):
-    """GPT-4o fallback when retrieved context is too weak to answer."""
+    """GPT-4o-mini fallback when retrieved context is too weak to answer."""
     return client.chat.completions.create(
-        model=LLM_MODEL,
+        model=ROUTER_MODEL,
         messages=[
             {"role": "system", "content": GENERAL_FALLBACK_SYSTEM},
             {"role": "user",   "content": query},

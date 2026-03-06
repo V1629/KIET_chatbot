@@ -8,6 +8,7 @@
 
 import math
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 import cohere
 from openai import OpenAI
@@ -41,17 +42,22 @@ def generate_hyde(client, query):
             {"role": "system", "content": HYDE_PROMPT},
             {"role": "user",   "content": query},
         ],
-        temperature=0.3, max_tokens=200,
+        temperature=0.3, max_tokens=120,
     )
     return r.choices[0].message.content.strip()
 
 def get_query_embedding(client, query):
-    q_emb = get_embedding(client, query)
     if should_use_hyde(query):
-        hyde_emb = get_embedding(client, generate_hyde(client, query))
+        hyde_text = generate_hyde(client, query)
+        # Parallelize the two embedding calls
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            q_future    = pool.submit(get_embedding, client, query)
+            hyde_future = pool.submit(get_embedding, client, hyde_text)
+            q_emb    = q_future.result()
+            hyde_emb = hyde_future.result()
         combined = [(a+b)/2 for a, b in zip(q_emb, hyde_emb)]
         return combined, True
-    return q_emb, False
+    return get_embedding(client, query), False
 
 
 # ── BM25 ──────────────────────────────────────────────────────────────────
@@ -149,8 +155,12 @@ def retrieve(idx, client, co_client, query, hyde_override=None):
 
     # Embedding
     if hyde_override:
-        q_emb     = get_embedding(client, query)
-        hyde_emb  = get_embedding(client, hyde_override)
+        # Parallelize the two embedding calls
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            q_future    = pool.submit(get_embedding, client, query)
+            hyde_future = pool.submit(get_embedding, client, hyde_override)
+            q_emb    = q_future.result()
+            hyde_emb = hyde_future.result()
         query_emb = [(a+b)/2 for a, b in zip(q_emb, hyde_emb)]
         hyde_used = True
     else:

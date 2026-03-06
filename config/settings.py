@@ -18,7 +18,7 @@ OVERLAP           = 80               # word overlap between chunks
 INITIAL_TOP_K     = 20              # candidates before reranking
 FINAL_TOP_K       = 5               # chunks after reranking
 MMR_LAMBDA        = 0.6             # 0=diversity, 1=relevance
-RERANK_MIN_SCORE  = 0.15            # below this → context too weak, fall back to GPT
+RERANK_MIN_SCORE  = 0.02            # below this → context too weak, fall back to GPT
 
 # ── Models ────────────────────────────────────────────
 EMBED_MODEL       = "text-embedding-3-small"
@@ -35,3 +35,10 @@ CACHE_MAX_SIZE    = 200
 
 # ── Embedding batch size ──────────────────────────────
 EMBED_BATCH_SIZE  = 100
+
+# ── Web Search (Tavily) ──────────────────────────────
+WEB_TOP_K         = 5               # Number of web results to fetch
+WEB_SEARCH_KEYWORDS = [             # If these appear in query, prefer web
+    "latest", "news", "2025", "2026", "current", "today",
+    "update", "recent", "new", "announce",
+]
