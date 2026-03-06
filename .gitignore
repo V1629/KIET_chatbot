@@ -1,0 +1,68 @@
+
+
+
+.env
+
+
+# ── Persistent indexes (rebuilt automatically on first run) ──
+# These are large binary/database files generated at runtime
+storage/bm25.pkl
+storage/duck.db
+storage/chroma/
+storage/data_hash.txt
+
+
+# ── Python cache & compiled bytecode ─────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+
+# ── Virtual environment ───────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+
+# ── Stray shell brace-expansion folder (accidental) ──
+{config,indexing,retrieval,generation,pipeline,storage}/
+
+
+# ── Streamlit config (machine-local settings) ─────────
+.streamlit/
+
+
+# ── OS / editor artifacts ─────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+
+# ── Python packaging / eggs ───────────────────────────
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+
+# ── Pytest / coverage ─────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+
+# ── Jupyter (if notebooks are ever added) ────────────
+.ipynb_checkpoints/
+
+
+# ── Logs ─────────────────────────────────────────────
+*.log
+logs/
+
